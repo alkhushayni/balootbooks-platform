@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { DisplayChapter } from "./types";
 
 export default function CurriculumTree({
+  courseId,
   chapters,
   onMove,
   onToggleHidden,
 }: {
+  courseId: string;
   chapters: DisplayChapter[];
   onMove: (index: number, direction: "up" | "down") => void;
   onToggleHidden: (index: number) => void;
@@ -104,19 +107,36 @@ export default function CurriculumTree({
                 {chapter.sections.length === 0 ? (
                   <span className="text-xs text-slate-400">No sections yet.</span>
                 ) : (
-                  chapter.sections.map((section) => (
-                    <span
-                      key={section.id}
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
-                        section.content_type === "LAB"
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-brand-100 text-brand-700"
-                      }`}
-                    >
-                      {section.title}
-                      {section.is_custom && <span className="text-violet-600">•</span>}
-                    </span>
-                  ))
+                  chapter.sections.map((section) => {
+                    const badgeClasses = `inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                      section.content_type === "LAB"
+                        ? "bg-amber-100 text-amber-800"
+                        : "bg-brand-100 text-brand-700"
+                    }`;
+
+                    // Custom (class-private) sections have no backing public.sections row, so
+                    // there's nothing for the inline editor to load - only master sections link.
+                    if (section.is_custom) {
+                      return (
+                        <span key={section.id} className={badgeClasses}>
+                          {section.title}
+                          <span className="text-violet-600">•</span>
+                        </span>
+                      );
+                    }
+
+                    return (
+                      <Link
+                        key={section.id}
+                        href={`/instructor/course/${courseId}/section/${section.id}`}
+                        className={`${badgeClasses} hover:ring-2 hover:ring-offset-1 ${
+                          section.content_type === "LAB" ? "hover:ring-amber-300" : "hover:ring-brand-300"
+                        }`}
+                      >
+                        {section.title}
+                      </Link>
+                    );
+                  })
                 )}
               </div>
             )}

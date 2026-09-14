@@ -364,7 +364,12 @@ export default function SyllabusEditorPage() {
                   every other class of this course.
                 </p>
               </div>
-              <CurriculumTree chapters={chapters} onMove={handleMove} onToggleHidden={handleToggleHidden} />
+              <CurriculumTree
+                courseId={courseId}
+                chapters={chapters}
+                onMove={handleMove}
+                onToggleHidden={handleToggleHidden}
+              />
             </div>
             <ActionPanel
               classId={classId}
