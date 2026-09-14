@@ -9,6 +9,7 @@ import TextbookMap from "./TextbookMap";
 import ReadingPane from "./ReadingPane";
 import LabWorkspace from "./LabWorkspace";
 import UnlockCourseAccess from "./UnlockCourseAccess";
+import AiStudyBuddy from "./_components/AiStudyBuddy";
 
 type ViewState =
   | "checking-access"
@@ -489,6 +490,10 @@ export default function StudentCoursePage() {
               )}
             </div>
           </div>
+        )}
+
+        {view === "ready" && activeSection && (
+          <AiStudyBuddy sectionId={activeSection.id} sectionTitle={activeSection.title} />
         )}
       </div>
     </div>
