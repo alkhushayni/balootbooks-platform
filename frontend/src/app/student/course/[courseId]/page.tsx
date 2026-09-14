@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { ChapterNode, CourseDetail, SectionNode } from "./types";
 import TextbookMap from "./TextbookMap";
 import ReadingPane from "./ReadingPane";
 import LabWorkspace from "./LabWorkspace";
+import UnlockCourseAccess from "./UnlockCourseAccess";
 
 type ViewState =
   | "checking-access"
@@ -107,6 +108,8 @@ function buildStudentChapters(
 export default function StudentCoursePage() {
   const params = useParams<{ courseId: string }>();
   const courseId = params.courseId;
+  const searchParams = useSearchParams();
+  const checkoutStatus = searchParams.get("checkout");
 
   const [view, setView] = useState<ViewState>("checking-access");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -157,20 +160,38 @@ export default function StudentCoursePage() {
         return;
       }
 
-      if (!enrollmentRows || enrollmentRows.length === 0) {
-        setView("not-enrolled");
-        return;
+      let classId: string | null = null;
+
+      if (enrollmentRows && enrollmentRows.length > 0) {
+        const relatedClass = Array.isArray(enrollmentRows[0].classes)
+          ? enrollmentRows[0].classes[0]
+          : enrollmentRows[0].classes;
+        classId = relatedClass?.id ?? null;
       }
 
-      const relatedClass = Array.isArray(enrollmentRows[0].classes)
-        ? enrollmentRows[0].classes[0]
-        : enrollmentRows[0].classes;
-      const classId = relatedClass?.id;
-
+      // No classroom enrollment - check whether this course was unlocked via a direct Stripe
+      // purchase (Step 31) instead. A purchaser has no class context at all, so they only ever
+      // see the unmodified master catalog (no instructor sandbox overrides apply, below).
       if (!classId) {
-        setErrorMessage("Couldn't resolve your class for this course.");
-        setView("error");
-        return;
+        const { data: purchaseRows, error: purchaseError } = await supabase
+          .from("student_purchases")
+          .select("id")
+          .eq("student_id", user.id)
+          .eq("course_id", courseId)
+          .limit(1);
+
+        if (cancelled) return;
+
+        if (purchaseError) {
+          setErrorMessage(purchaseError.message);
+          setView("error");
+          return;
+        }
+
+        if (!purchaseRows || purchaseRows.length === 0) {
+          setView("not-enrolled");
+          return;
+        }
       }
 
       setView("loading");
@@ -187,16 +208,20 @@ export default function StudentCoursePage() {
           )
           .eq("id", courseId)
           .single(),
-        supabase
-          .from("class_chapter_overrides")
-          .select(
-            "id, chapter_id, title, display_order, is_hidden, class_custom_sections(id, title, content_type, display_order, markdown_content)"
-          )
-          .eq("class_id", classId),
-        supabase
-          .from("class_section_content_overrides")
-          .select("section_id, markdown_content")
-          .eq("class_id", classId),
+        classId
+          ? supabase
+              .from("class_chapter_overrides")
+              .select(
+                "id, chapter_id, title, display_order, is_hidden, class_custom_sections(id, title, content_type, display_order, markdown_content)"
+              )
+              .eq("class_id", classId)
+          : Promise.resolve({ data: [] as ChapterOverrideRow[], error: null }),
+        classId
+          ? supabase
+              .from("class_section_content_overrides")
+              .select("section_id, markdown_content")
+              .eq("class_id", classId)
+          : Promise.resolve({ data: [] as SectionContentOverrideRow[], error: null }),
       ]);
 
       if (cancelled) return;
@@ -331,6 +356,14 @@ export default function StudentCoursePage() {
         </Link>
       </header>
 
+      {checkoutStatus === "success" && view !== "checking-access" && view !== "loading" && (
+        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-6 py-2 text-center text-xs font-medium text-emerald-800">
+          {view === "not-enrolled"
+            ? "Payment received — finishing setup. This usually takes just a moment; refresh if access doesn't appear shortly."
+            : "Payment received — you now have full access to this course."}
+        </div>
+      )}
+
       <div className="min-h-0 flex-1">
         {view === "checking-access" && (
           <CenteredStatus tone="neutral">Checking your access...</CenteredStatus>
@@ -351,14 +384,7 @@ export default function StudentCoursePage() {
           </CenteredStatus>
         )}
 
-        {view === "not-enrolled" && (
-          <CenteredStatus tone="warning">
-            You&apos;re not enrolled in a class for this course yet.{" "}
-            <Link href="/student/dashboard" className="font-medium text-brand-600 hover:text-brand-700">
-              Join with a class code
-            </Link>
-          </CenteredStatus>
-        )}
+        {view === "not-enrolled" && <UnlockCourseAccess courseId={courseId} />}
 
         {view === "loading" && <CenteredStatus tone="neutral">Loading the course...</CenteredStatus>}
 
