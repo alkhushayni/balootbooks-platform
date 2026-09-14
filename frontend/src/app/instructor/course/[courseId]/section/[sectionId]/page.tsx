@@ -43,45 +43,79 @@ export default function SectionEditorPage() {
     async (activeClassId: string) => {
       const supabase = createClient();
 
+      // Master catalog sections and class-private custom sections (Step 16) live in different
+      // tables with different id spaces - try the shared master table first, since that's the
+      // common case, and fall back to class_custom_sections rather than erroring outright when a
+      // custom section's id doesn't match anything there.
       const { data: sectionRow, error: sectionError } = await supabase
         .from("sections")
         .select("id, title, content_type, markdown_content, chapter_id, chapters(course_id)")
         .eq("id", sectionId)
-        .single();
+        .maybeSingle();
 
-      if (sectionError || !sectionRow) {
-        setErrorMessage(sectionError?.message ?? "Section not found.");
+      if (sectionError) {
+        setErrorMessage(sectionError.message);
         setView("error");
         return;
       }
 
-      const relatedChapter = Array.isArray(sectionRow.chapters) ? sectionRow.chapters[0] : sectionRow.chapters;
-      if (relatedChapter?.course_id !== courseId) {
-        setView("forbidden");
+      if (sectionRow) {
+        const relatedChapter = Array.isArray(sectionRow.chapters) ? sectionRow.chapters[0] : sectionRow.chapters;
+        if (relatedChapter?.course_id !== courseId) {
+          setView("forbidden");
+          return;
+        }
+
+        const { data: override, error: overrideError } = await supabase
+          .from("class_section_content_overrides")
+          .select("markdown_content")
+          .eq("class_id", activeClassId)
+          .eq("section_id", sectionId)
+          .maybeSingle();
+
+        if (overrideError) {
+          setErrorMessage(overrideError.message);
+          setView("error");
+          return;
+        }
+
+        setSection({
+          id: sectionRow.id,
+          title: sectionRow.title,
+          content_type: sectionRow.content_type,
+          markdown_content: sectionRow.markdown_content,
+          chapter_id: sectionRow.chapter_id,
+          is_custom: false,
+        });
+        setContent(override?.markdown_content ?? sectionRow.markdown_content ?? "");
+        setView("ready");
         return;
       }
 
-      const { data: override, error: overrideError } = await supabase
-        .from("class_section_content_overrides")
-        .select("markdown_content")
-        .eq("class_id", activeClassId)
-        .eq("section_id", sectionId)
+      // Not a master section - try a class-private custom section instead, scoped to a chapter
+      // override that belongs to this instructor's own class for this course.
+      const { data: customRow, error: customError } = await supabase
+        .from("class_custom_sections")
+        .select("id, title, content_type, markdown_content, chapter_override_id, class_chapter_overrides!inner(class_id)")
+        .eq("id", sectionId)
+        .eq("class_chapter_overrides.class_id", activeClassId)
         .maybeSingle();
 
-      if (overrideError) {
-        setErrorMessage(overrideError.message);
+      if (customError || !customRow) {
+        setErrorMessage(customError?.message ?? "Section not found.");
         setView("error");
         return;
       }
 
       setSection({
-        id: sectionRow.id,
-        title: sectionRow.title,
-        content_type: sectionRow.content_type,
-        markdown_content: sectionRow.markdown_content,
-        chapter_id: sectionRow.chapter_id,
+        id: customRow.id,
+        title: customRow.title,
+        content_type: customRow.content_type,
+        markdown_content: customRow.markdown_content,
+        chapter_id: customRow.chapter_override_id,
+        is_custom: true,
       });
-      setContent(override?.markdown_content ?? sectionRow.markdown_content ?? "");
+      setContent(customRow.markdown_content ?? "");
       setView("ready");
     },
     [courseId, sectionId]
@@ -174,12 +208,17 @@ export default function SectionEditorPage() {
 
     setSaving(true);
     const supabase = createClient();
-    const { error } = await supabase
-      .from("class_section_content_overrides")
-      .upsert(
-        { class_id: classId, section_id: section.id, markdown_content: content, updated_at: new Date().toISOString() },
-        { onConflict: "class_id,section_id" }
-      );
+
+    // A custom section has no shared master default to override - its own markdown_content IS
+    // the content, so it's updated directly rather than upserted into class_section_content_overrides.
+    const { error } = section.is_custom
+      ? await supabase.from("class_custom_sections").update({ markdown_content: content }).eq("id", section.id)
+      : await supabase
+          .from("class_section_content_overrides")
+          .upsert(
+            { class_id: classId, section_id: section.id, markdown_content: content, updated_at: new Date().toISOString() },
+            { onConflict: "class_id,section_id" }
+          );
     setSaving(false);
 
     if (error) {

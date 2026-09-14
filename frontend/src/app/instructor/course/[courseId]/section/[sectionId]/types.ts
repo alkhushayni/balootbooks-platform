@@ -4,6 +4,7 @@ export type SectionRecord = {
   content_type: "READING" | "LAB";
   markdown_content: string | null;
   chapter_id: string;
+  is_custom: boolean;
 };
 
 export type ClassOption = {

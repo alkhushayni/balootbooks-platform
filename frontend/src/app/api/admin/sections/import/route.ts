@@ -130,28 +130,23 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // The supabase-js admin SDK's listUsers() only supports page/perPage pagination, with no
-      // email filter - paginating through every user to find one by email would be both slow and
-      // fragile. The Admin Auth REST endpoint itself does support an `email` query filter, so
-      // that's called directly here instead.
-      const lookupResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(email)}`,
-        {
-          headers: {
-            apikey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-          },
-        }
-      );
-      const lookupBody = await lookupResponse.json();
-      const existing = lookupBody?.users?.[0];
+      // The Admin Auth REST endpoint's `email` query param does not actually filter results (
+      // confirmed live - it silently returns page 1 of ALL users regardless of the email
+      // requested), so this resolves the existing account via a proper indexed DB lookup instead.
+      // Called on the caller's own SSR session (not the admin/service-role client used elsewhere
+      // in this route), since find_auth_user_id_by_email() checks is_platform_admin() internally
+      // via auth.uid() - that resolves to nothing under the service-role client, which carries no
+      // user session at all.
+      const { data: existingId, error: lookupError } = await supabase.rpc("find_auth_user_id_by_email", {
+        p_email: email,
+      });
 
-      if (!lookupResponse.ok || !existing) {
+      if (lookupError || !existingId) {
         failures.push({ email, reason: "Account already exists but could not be resolved." });
         continue;
       }
 
-      studentId = existing.id;
+      studentId = existingId;
     }
 
     const { error: enrollError } = await admin
