@@ -25,6 +25,26 @@ export async function signUp(_prevState: RegisterState, formData: FormData): Pro
   const role = isInstructor ? "unverified_instructor" : "student";
 
   const supabase = await createClient();
+
+  const emailDomain = email.split("@")[1]?.toLowerCase();
+  if (!emailDomain) {
+    return { error: "Enter a valid email address." };
+  }
+
+  const { data: isAllowlisted, error: domainCheckError } = await supabase.rpc("is_domain_allowlisted", {
+    p_domain: emailDomain,
+  });
+
+  if (domainCheckError) {
+    return { error: "We couldn't verify your institution right now. Please try again shortly." };
+  }
+
+  if (!isAllowlisted) {
+    return {
+      error: "Your institution hasn't been onboarded to BalootBooks yet. Contact your administrator for access.",
+    };
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
