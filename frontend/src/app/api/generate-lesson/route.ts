@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { generateOutline } from "@/lib/llm/generateOutline";
 
 type GenerateLessonPayload = {
   courseId?: string;
@@ -7,10 +8,14 @@ type GenerateLessonPayload = {
   prompt?: string;
 };
 
-type GeneratedSection = {
-  title: string;
-  content_type: "READING" | "LAB";
-  markdown_content: string;
+type GeneratedChapterRow = {
+  out_chapter_id: string;
+  out_chapter_title: string;
+  out_section_id: string;
+  out_section_title: string;
+  out_content_type: "READING" | "LAB";
+  out_markdown_content: string;
+  out_display_order: number;
 };
 
 export async function POST(request: Request) {
@@ -75,71 +80,41 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "The selected course could not be found." }, { status: 404 });
   }
 
-  const sections = buildMockOutline(course.title, chapterName, prompt);
+  let outline;
+  try {
+    outline = await generateOutline(course.title, chapterName, prompt);
+  } catch (error) {
+    console.error("[generate-lesson] Both providers failed:", error);
+    return NextResponse.json(
+      { error: "AI generation failed on every configured provider. Check server logs for details." },
+      { status: 502 }
+    );
+  }
 
-  return NextResponse.json({ chapter_name: chapterName, sections });
-}
+  const { data: writtenRows, error: writeError } = await supabase.rpc("create_generated_chapter", {
+    p_course_id: courseId,
+    p_chapter_title: outline.chapter_name,
+    p_sections: outline.sections,
+  });
 
-function buildMockOutline(
-  courseTitle: string,
-  chapterName: string,
-  prompt: string
-): GeneratedSection[] {
-  return [
-    {
-      title: `${chapterName}: Foundational Concepts`,
-      content_type: "READING",
-      markdown_content: [
-        `## Overview`,
-        ``,
-        `This section introduces the foundational concepts of **${chapterName}** within the context of *${courseTitle}*.`,
-        ``,
-        `> Generation focus: ${prompt}`,
-        ``,
-        `### Learning Objectives`,
-        `- Define the core terminology introduced in this chapter.`,
-        `- Explain how these concepts connect to earlier material in ${courseTitle}.`,
-        `- Identify the real-world scenarios where this knowledge applies.`,
-        ``,
-        `### Key Terms`,
-        `| Term | Definition |`,
-        `| --- | --- |`,
-        `| Concept A | Placeholder definition tailored to "${prompt}". |`,
-        `| Concept B | Placeholder definition tailored to "${prompt}". |`,
-      ].join("\n"),
-    },
-    {
-      title: `${chapterName}: Applied Practice`,
-      content_type: "LAB",
-      markdown_content: [
-        `## Introduction`,
-        ``,
-        `Apply the concepts from the previous reading in a hands-on exercise centered on: ${prompt}.`,
-        ``,
-        `### Devices`,
-        `- Workstation with the ${courseTitle} lab environment`,
-        ``,
-        `### Tasks`,
-        `1. Review the scenario described in the generation prompt.`,
-        `2. Complete the guided exercise steps (populated by the LLM pipeline once connected).`,
-        `3. Submit your results for automatic progress tracking.`,
-      ].join("\n"),
-    },
-    {
-      title: `${chapterName}: Synthesis & Assessment`,
-      content_type: "READING",
-      markdown_content: [
-        `## Wrapping Up`,
-        ``,
-        `Synthesize what was covered in **${chapterName}** and connect it back to ${courseTitle}.`,
-        ``,
-        `### Discussion Prompt`,
-        `${prompt}`,
-        ``,
-        `### Self-Check`,
-        `- Can you summarize the chapter's core idea in two sentences?`,
-        `- What follow-up question would you bring to your instructor?`,
-      ].join("\n"),
-    },
-  ];
+  if (writeError || !writtenRows || writtenRows.length === 0) {
+    return NextResponse.json(
+      { error: writeError?.message ?? "Generated content could not be saved to the catalog." },
+      { status: 500 }
+    );
+  }
+
+  const rows = writtenRows as GeneratedChapterRow[];
+
+  return NextResponse.json({
+    chapter_id: rows[0].out_chapter_id,
+    chapter_name: rows[0].out_chapter_title,
+    sections: rows
+      .sort((a, b) => a.out_display_order - b.out_display_order)
+      .map((row) => ({
+        title: row.out_section_title,
+        content_type: row.out_content_type,
+        markdown_content: row.out_markdown_content,
+      })),
+  });
 }

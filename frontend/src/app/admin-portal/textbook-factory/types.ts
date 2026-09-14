@@ -10,6 +10,7 @@ export type GeneratedSection = {
 };
 
 export type GenerationResult = {
+  chapter_id: string;
   chapter_name: string;
   sections: GeneratedSection[];
 };

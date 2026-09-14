@@ -13,9 +13,14 @@ export default function GenerationPreview({ result }: { result: GenerationResult
 
   return (
     <div className="h-full overflow-y-auto rounded-xl border border-slate-200 bg-white px-6 py-6 shadow-sm">
-      <h2 className="text-lg font-bold text-slate-900">{result.chapter_name}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-bold text-slate-900">{result.chapter_name}</h2>
+        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+          Saved to catalog
+        </span>
+      </div>
       <p className="mt-1 text-sm text-slate-500">
-        {result.sections.length} generated section{result.sections.length === 1 ? "" : "s"}
+        {result.sections.length} section{result.sections.length === 1 ? "" : "s"} written to public.chapters / public.sections
       </p>
 
       <div className="mt-6 space-y-8">
