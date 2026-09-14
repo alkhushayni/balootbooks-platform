@@ -3,6 +3,7 @@ import remarkGfm from "remark-gfm";
 import BalootLabsPane from "@/components/learning-loop/balootlabs-pane";
 import type { SectionNode } from "./types";
 import MarkCompleteToggle from "./MarkCompleteToggle";
+import SectionQuiz from "./SectionQuiz";
 
 export default function LabWorkspace({
   section,
@@ -37,6 +38,8 @@ export default function LabWorkspace({
           initiallyComplete={initiallyComplete}
           onComplete={onComplete}
         />
+
+        <SectionQuiz key={`quiz-${section.id}`} section={section} />
       </div>
 
       <div className="min-h-[24rem] flex-1 bg-slate-100 p-4 lg:w-1/2 lg:flex-none">

@@ -2,6 +2,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { SectionNode } from "./types";
 import MarkCompleteToggle from "./MarkCompleteToggle";
+import SectionQuiz from "./SectionQuiz";
 
 export default function ReadingPane({
   section,
@@ -33,6 +34,8 @@ export default function ReadingPane({
           initiallyComplete={initiallyComplete}
           onComplete={onComplete}
         />
+
+        <SectionQuiz key={`quiz-${section.id}`} section={section} />
       </div>
     </div>
   );
