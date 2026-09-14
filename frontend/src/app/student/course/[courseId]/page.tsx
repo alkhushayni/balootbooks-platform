@@ -18,6 +18,90 @@ type ViewState =
   | "error"
   | "ready";
 
+type ChapterOverrideRow = {
+  id: string;
+  chapter_id: string | null;
+  title: string | null;
+  display_order: number | null;
+  is_hidden: boolean;
+  class_custom_sections:
+    | { id: string; title: string; content_type: "READING" | "LAB"; display_order: number; markdown_content: string | null }[]
+    | null;
+};
+
+type SectionContentOverrideRow = {
+  section_id: string;
+  markdown_content: string | null;
+};
+
+// Merges the master chapters/sections catalog with this student's class-scoped sandbox: chapter
+// reorder/hide, class-private custom chapters/sections (Step 16), and per-section content
+// overrides (Step 17). Hidden chapters are dropped entirely here, unlike the instructor's editor
+// which shows them dimmed - a student should never see a chapter their instructor hid.
+function buildStudentChapters(
+  masterChapters: ChapterNode[],
+  chapterOverrides: ChapterOverrideRow[],
+  contentOverrides: SectionContentOverrideRow[]
+): ChapterNode[] {
+  const overrideByChapterId = new Map<string, ChapterOverrideRow>();
+  const customChapterOverrides: ChapterOverrideRow[] = [];
+
+  for (const override of chapterOverrides) {
+    if (override.chapter_id) {
+      overrideByChapterId.set(override.chapter_id, override);
+    } else {
+      customChapterOverrides.push(override);
+    }
+  }
+
+  const contentBySectionId = new Map(contentOverrides.map((row) => [row.section_id, row.markdown_content]));
+
+  const toCustomSections = (
+    rows: ChapterOverrideRow["class_custom_sections"]
+  ): SectionNode[] =>
+    (rows ?? []).map((row) => ({
+      id: row.id,
+      title: row.title,
+      content_type: row.content_type,
+      display_order: row.display_order,
+      markdown_content: row.markdown_content,
+    }));
+
+  const fromMaster: ChapterNode[] = masterChapters
+    .map((chapter) => {
+      const override = overrideByChapterId.get(chapter.id);
+      if (override?.is_hidden) return null;
+
+      const masterSections: SectionNode[] = chapter.sections.map((section) => ({
+        ...section,
+        markdown_content: contentBySectionId.get(section.id) ?? section.markdown_content,
+      }));
+
+      return {
+        id: chapter.id,
+        title: chapter.title,
+        display_order: override?.display_order ?? chapter.display_order,
+        sections: [...masterSections, ...toCustomSections(override?.class_custom_sections ?? null)].sort(
+          (a, b) => a.display_order - b.display_order
+        ),
+      };
+    })
+    .filter((chapter): chapter is ChapterNode => chapter !== null);
+
+  const fromCustom: ChapterNode[] = customChapterOverrides
+    .filter((override) => !override.is_hidden)
+    .map((override) => ({
+      id: override.id,
+      title: override.title ?? "Untitled chapter",
+      display_order: override.display_order ?? 0,
+      sections: toCustomSections(override.class_custom_sections).sort(
+        (a, b) => a.display_order - b.display_order
+      ),
+    }));
+
+  return [...fromMaster, ...fromCustom].sort((a, b) => a.display_order - b.display_order);
+}
+
 export default function StudentCoursePage() {
   const params = useParams<{ courseId: string }>();
   const courseId = params.courseId;
@@ -59,7 +143,7 @@ export default function StudentCoursePage() {
       // (chapters/sections) belongs to the shared course, not to any one instructor's class.
       const { data: enrollmentRows, error: enrollmentError } = await supabase
         .from("enrollments")
-        .select("id, classes!inner(course_id)")
+        .select("id, classes!inner(id, course_id)")
         .eq("student_id", user.id)
         .eq("classes.course_id", courseId);
 
@@ -76,15 +160,42 @@ export default function StudentCoursePage() {
         return;
       }
 
+      const relatedClass = Array.isArray(enrollmentRows[0].classes)
+        ? enrollmentRows[0].classes[0]
+        : enrollmentRows[0].classes;
+      const classId = relatedClass?.id;
+
+      if (!classId) {
+        setErrorMessage("Couldn't resolve your class for this course.");
+        setView("error");
+        return;
+      }
+
       setView("loading");
 
-      const { data, error } = await supabase
-        .from("courses")
-        .select(
-          "id, title, description, chapters(id, title, display_order, sections(id, title, content_type, display_order, markdown_content))"
-        )
-        .eq("id", courseId)
-        .single();
+      const [
+        { data, error },
+        { data: chapterOverrides, error: chapterOverridesError },
+        { data: contentOverrides, error: contentOverridesError },
+      ] = await Promise.all([
+        supabase
+          .from("courses")
+          .select(
+            "id, title, description, chapters(id, title, display_order, sections(id, title, content_type, display_order, markdown_content))"
+          )
+          .eq("id", courseId)
+          .single(),
+        supabase
+          .from("class_chapter_overrides")
+          .select(
+            "id, chapter_id, title, display_order, is_hidden, class_custom_sections(id, title, content_type, display_order, markdown_content)"
+          )
+          .eq("class_id", classId),
+        supabase
+          .from("class_section_content_overrides")
+          .select("section_id, markdown_content")
+          .eq("class_id", classId),
+      ]);
 
       if (cancelled) return;
 
@@ -94,9 +205,15 @@ export default function StudentCoursePage() {
         return;
       }
 
+      if (chapterOverridesError || contentOverridesError) {
+        setErrorMessage((chapterOverridesError ?? contentOverridesError)!.message);
+        setView("error");
+        return;
+      }
+
       // Normalize embedded relations defensively, same as the admin catalog manager — cardinality-
       // based typing isn't guaranteed without generated Database types.
-      const chapters: ChapterNode[] = (Array.isArray(data.chapters) ? data.chapters : [])
+      const masterChapters: ChapterNode[] = (Array.isArray(data.chapters) ? data.chapters : [])
         .map(
           (chapter): ChapterNode => ({
             id: chapter.id,
@@ -118,6 +235,12 @@ export default function StudentCoursePage() {
           ...chapter,
           sections: [...chapter.sections].sort((a, b) => a.display_order - b.display_order),
         }));
+
+      const chapters = buildStudentChapters(
+        masterChapters,
+        (chapterOverrides ?? []) as ChapterOverrideRow[],
+        (contentOverrides ?? []) as SectionContentOverrideRow[]
+      );
 
       setCourse({ id: data.id, title: data.title, description: data.description, chapters });
       setActiveSection(chapters[0]?.sections[0] ?? null);
