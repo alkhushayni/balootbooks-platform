@@ -1,0 +1,9 @@
+﻿node_modules/
+.next/
+dist/
+build/
+*.mp4
+*.png
+*.jpg
+package-lock.json
+poetry.lock
