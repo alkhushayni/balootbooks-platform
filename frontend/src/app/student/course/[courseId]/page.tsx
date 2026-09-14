@@ -374,6 +374,7 @@ export default function StudentCoursePage() {
               {activeSection ? (
                 activeSection.content_type === "LAB" ? (
                   <LabWorkspace
+                    courseId={courseId}
                     section={activeSection}
                     initiallyComplete={(progressBySection[activeSection.id]?.lab_percentage ?? 0) >= 100}
                     onComplete={() => markSectionComplete(activeSection.id, "lab_percentage")}

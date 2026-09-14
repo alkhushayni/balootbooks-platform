@@ -1,3 +1,4 @@
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import BalootLabsPane from "@/components/learning-loop/balootlabs-pane";
@@ -6,10 +7,12 @@ import MarkCompleteToggle from "./MarkCompleteToggle";
 import SectionQuiz from "./SectionQuiz";
 
 export default function LabWorkspace({
+  courseId,
   section,
   initiallyComplete,
   onComplete,
 }: {
+  courseId: string;
   section: SectionNode;
   initiallyComplete: boolean;
   onComplete: () => void;
@@ -27,6 +30,15 @@ export default function LabWorkspace({
           ) : (
             <p className="text-slate-400">This lab doesn&apos;t have any instructions yet.</p>
           )}
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <Link
+            href={`/student/course/${courseId}/section/${section.id}/lab`}
+            className="flex items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 sm:w-auto"
+          >
+            🚀 Launch Virtual Terminal Workspace
+          </Link>
         </div>
 
         <MarkCompleteToggle
