@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logAuditEvent } from "@/lib/audit-log";
 
 type RosterEntry = {
   fullName?: string;
@@ -90,6 +91,7 @@ export async function POST(request: Request) {
   const allowedDomains = new Set((domainRows ?? []).map((row) => row.domain_string.toLowerCase()));
 
   const failures: ImportFailure[] = [];
+  const importedEmails: string[] = [];
   let importedCount = 0;
 
   for (const entry of roster) {
@@ -166,7 +168,15 @@ export async function POST(request: Request) {
     }
 
     importedCount += 1;
+    importedEmails.push(email);
   }
+
+  await logAuditEvent({
+    actorId: user.id,
+    actionType: "roster_import",
+    description: `Imported ${importedCount} student${importedCount === 1 ? "" : "s"} into class ${classId} (${failures.length} skipped).`,
+    metadata: { classId, institutionId, importedEmails, failures },
+  });
 
   return NextResponse.json({ importedCount, skippedCount: failures.length, failures });
 }
