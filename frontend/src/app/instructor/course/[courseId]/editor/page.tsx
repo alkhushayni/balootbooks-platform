@@ -8,6 +8,7 @@ import type { ClassOption, DisplayChapter, DisplaySection, MasterChapter, ToastS
 import CurriculumTree from "./CurriculumTree";
 import ActionPanel from "./ActionPanel";
 import Toast from "./Toast";
+import LmsIntegrationModal from "../_components/LmsIntegrationModal";
 
 type ViewState =
   | "checking-access"
@@ -92,8 +93,10 @@ export default function SyllabusEditorPage() {
   const [courseTitle, setCourseTitle] = useState("");
   const [ownedClasses, setOwnedClasses] = useState<ClassOption[]>([]);
   const [classId, setClassId] = useState<string | null>(null);
+  const [selectedClass, setSelectedClass] = useState<ClassOption | null>(null);
   const [chapters, setChapters] = useState<DisplayChapter[]>([]);
   const [toast, setToast] = useState<ToastState>(null);
+  const [showLmsModal, setShowLmsModal] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -185,6 +188,7 @@ export default function SyllabusEditorPage() {
       }
 
       setClassId(classRows[0].id);
+      setSelectedClass(classRows[0]);
       setView("loading");
       await loadCurriculum(classRows[0].id);
     })();
@@ -196,6 +200,7 @@ export default function SyllabusEditorPage() {
 
   async function handleChooseClass(chosenClassId: string) {
     setClassId(chosenClassId);
+    setSelectedClass(ownedClasses.find((option) => option.id === chosenClassId) ?? null);
     setView("loading");
     await loadCurriculum(chosenClassId);
   }
@@ -299,11 +304,33 @@ export default function SyllabusEditorPage() {
               Syllabus Builder{courseTitle ? ` — ${courseTitle}` : ""}
             </h1>
           </div>
-          <Link href="/instructor/course-manager" className="text-sm font-medium text-brand-600 hover:text-brand-700">
-            Course Manager →
-          </Link>
+          <div className="flex items-center gap-4">
+            {view === "ready" && selectedClass && (
+              <button
+                type="button"
+                onClick={() => setShowLmsModal(true)}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+              >
+                View instructions
+              </button>
+            )}
+            <Link href="/instructor/course-manager" className="text-sm font-medium text-brand-600 hover:text-brand-700">
+              Course Manager →
+            </Link>
+          </div>
         </div>
       </header>
+
+      {showLmsModal && selectedClass && (
+        <LmsIntegrationModal
+          courseTitle={courseTitle}
+          sectionTitle={selectedClass.section_title}
+          termToken={selectedClass.term_token}
+          classId={selectedClass.id}
+          onClose={() => setShowLmsModal(false)}
+          onCopySuccess={(message) => setToast({ tone: "success", message })}
+        />
+      )}
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {view === "checking-access" && <StatusPanel tone="neutral">Checking your instructor access...</StatusPanel>}
