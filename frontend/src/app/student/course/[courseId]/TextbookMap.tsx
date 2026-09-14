@@ -12,10 +12,12 @@ export default function TextbookMap({
   chapters,
   activeSectionId,
   onSelectSection,
+  completedSectionIds,
 }: {
   chapters: ChapterNode[];
   activeSectionId: string | null;
   onSelectSection: (section: SectionNode) => void;
+  completedSectionIds: Set<string>;
 }) {
   const [collapsedChapters, setCollapsedChapters] = useState<Set<string>>(new Set());
 
@@ -54,6 +56,7 @@ export default function TextbookMap({
                 <div className="ml-4 space-y-0.5 border-l border-slate-200 pl-3">
                   {chapter.sections.map((section) => {
                     const isActive = section.id === activeSectionId;
+                    const isCompleted = completedSectionIds.has(section.id);
                     return (
                       <button
                         key={section.id}
@@ -66,7 +69,15 @@ export default function TextbookMap({
                         }`}
                       >
                         <span className="text-xs">{CONTENT_TYPE_ICON[section.content_type]}</span>
-                        <span className="truncate">{section.title}</span>
+                        <span className="min-w-0 flex-1 truncate">{section.title}</span>
+                        {isCompleted && (
+                          <span
+                            aria-label="Completed"
+                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-[10px] text-white"
+                          >
+                            ✓
+                          </span>
+                        )}
                       </button>
                     );
                   })}

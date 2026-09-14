@@ -1,18 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 
 type MetricField = "participation_percentage" | "lab_percentage";
 
 export default function MarkCompleteToggle({
   sectionId,
+  isCustom,
   metric,
   label,
   initiallyComplete,
   onComplete,
 }: {
   sectionId: string;
+  isCustom: boolean;
   metric: MetricField;
   label: string;
   initiallyComplete: boolean;
@@ -28,36 +29,30 @@ export default function MarkCompleteToggle({
     setSaving(true);
     setError(null);
 
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    try {
+      const response = await fetch("/api/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          [isCustom ? "customSectionId" : "sectionId"]: sectionId,
+          metric,
+        }),
+      });
 
-    if (!user) {
-      setError("You need to be signed in to save progress.");
+      const body = await response.json();
+
+      if (!response.ok) {
+        setError(body.error ?? "Couldn't save progress.");
+        return;
+      }
+
+      setCompleted(true);
+      onComplete();
+    } catch {
+      setError("Couldn't reach the progress service. Try again.");
+    } finally {
       setSaving(false);
-      return;
     }
-
-    const { error: upsertError } = await supabase.from("student_progress").upsert(
-      {
-        student_id: user.id,
-        section_id: sectionId,
-        [metric]: 100,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "student_id,section_id" }
-    );
-
-    setSaving(false);
-
-    if (upsertError) {
-      setError(upsertError.message);
-      return;
-    }
-
-    setCompleted(true);
-    onComplete();
   }
 
   return (

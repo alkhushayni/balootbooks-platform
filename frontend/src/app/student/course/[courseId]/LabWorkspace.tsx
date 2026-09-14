@@ -31,6 +31,7 @@ export default function LabWorkspace({
         <MarkCompleteToggle
           key={section.id}
           sectionId={section.id}
+          isCustom={section.is_custom}
           metric="lab_percentage"
           label="Lab"
           initiallyComplete={initiallyComplete}

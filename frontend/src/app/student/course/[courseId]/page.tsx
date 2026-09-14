@@ -65,6 +65,7 @@ function buildStudentChapters(
       content_type: row.content_type,
       display_order: row.display_order,
       markdown_content: row.markdown_content,
+      is_custom: true,
     }));
 
   const fromMaster: ChapterNode[] = masterChapters
@@ -75,6 +76,7 @@ function buildStudentChapters(
       const masterSections: SectionNode[] = chapter.sections.map((section) => ({
         ...section,
         markdown_content: contentBySectionId.get(section.id) ?? section.markdown_content,
+        is_custom: false,
       }));
 
       return {
@@ -226,6 +228,7 @@ export default function StudentCoursePage() {
                 content_type: section.content_type,
                 display_order: section.display_order,
                 markdown_content: section.markdown_content,
+                is_custom: false,
               })
             ),
           })
@@ -245,25 +248,42 @@ export default function StudentCoursePage() {
       setCourse({ id: data.id, title: data.title, description: data.description, chapters });
       setActiveSection(chapters[0]?.sections[0] ?? null);
 
-      const sectionIds = chapters.flatMap((chapter) => chapter.sections.map((section) => section.id));
+      const allSections = chapters.flatMap((chapter) => chapter.sections);
+      const masterSectionIds = allSections.filter((section) => !section.is_custom).map((section) => section.id);
+      const customSectionIds = allSections.filter((section) => section.is_custom).map((section) => section.id);
 
-      if (sectionIds.length > 0) {
-        const { data: progressRows } = await supabase
-          .from("student_progress")
-          .select("section_id, participation_percentage, lab_percentage")
-          .eq("student_id", user.id)
-          .in("section_id", sectionIds);
+      const [masterProgress, customProgress] = await Promise.all([
+        masterSectionIds.length > 0
+          ? supabase
+              .from("student_progress")
+              .select("section_id, participation_percentage, lab_percentage")
+              .eq("student_id", user.id)
+              .in("section_id", masterSectionIds)
+          : Promise.resolve({ data: [] as { section_id: string; participation_percentage: number; lab_percentage: number }[] }),
+        customSectionIds.length > 0
+          ? supabase
+              .from("student_progress")
+              .select("class_custom_section_id, participation_percentage, lab_percentage")
+              .eq("student_id", user.id)
+              .in("class_custom_section_id", customSectionIds)
+          : Promise.resolve({ data: [] as { class_custom_section_id: string; participation_percentage: number; lab_percentage: number }[] }),
+      ]);
 
-        if (!cancelled && progressRows) {
-          const map: Record<string, { participation_percentage: number; lab_percentage: number }> = {};
-          for (const row of progressRows) {
-            map[row.section_id] = {
-              participation_percentage: row.participation_percentage,
-              lab_percentage: row.lab_percentage,
-            };
-          }
-          setProgressBySection(map);
+      if (!cancelled) {
+        const map: Record<string, { participation_percentage: number; lab_percentage: number }> = {};
+        for (const row of masterProgress.data ?? []) {
+          map[row.section_id] = {
+            participation_percentage: row.participation_percentage,
+            lab_percentage: row.lab_percentage,
+          };
         }
+        for (const row of customProgress.data ?? []) {
+          map[row.class_custom_section_id] = {
+            participation_percentage: row.participation_percentage,
+            lab_percentage: row.lab_percentage,
+          };
+        }
+        setProgressBySection(map);
       }
 
       setView("ready");
@@ -273,6 +293,12 @@ export default function StudentCoursePage() {
       cancelled = true;
     };
   }, [courseId]);
+
+  const completedSectionIds = new Set(
+    Object.entries(progressBySection)
+      .filter(([, metrics]) => metrics.participation_percentage >= 100 || metrics.lab_percentage >= 100)
+      .map(([sectionId]) => sectionId)
+  );
 
   function markSectionComplete(sectionId: string, metric: "participation_percentage" | "lab_percentage") {
     setProgressBySection((previous) => ({
@@ -341,6 +367,7 @@ export default function StudentCoursePage() {
                 chapters={course.chapters}
                 activeSectionId={activeSection?.id ?? null}
                 onSelectSection={setActiveSection}
+                completedSectionIds={completedSectionIds}
               />
             </div>
             <div className="min-w-0 flex-1 overflow-hidden">

@@ -27,6 +27,7 @@ export default function ReadingPane({
         <MarkCompleteToggle
           key={section.id}
           sectionId={section.id}
+          isCustom={section.is_custom}
           metric="participation_percentage"
           label="Reading"
           initiallyComplete={initiallyComplete}

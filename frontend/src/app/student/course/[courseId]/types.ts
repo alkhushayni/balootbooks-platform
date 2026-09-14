@@ -4,6 +4,9 @@ export type SectionNode = {
   content_type: "READING" | "LAB";
   display_order: number;
   markdown_content: string | null;
+  // true when id is a class_custom_sections.id (no backing public.sections row) rather than a
+  // master section - determines which student_progress reference column to write to.
+  is_custom: boolean;
 };
 
 export type ChapterNode = {
