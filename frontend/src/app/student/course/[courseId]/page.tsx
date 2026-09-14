@@ -323,6 +323,12 @@ export default function StudentCoursePage() {
           </Link>
           <h1 className="mt-1 text-lg font-bold text-slate-900">{course?.title ?? "Course"}</h1>
         </div>
+        <Link
+          href={`/student/course/${courseId}/grades`}
+          className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          📊 My Grades
+        </Link>
       </header>
 
       <div className="min-h-0 flex-1">
