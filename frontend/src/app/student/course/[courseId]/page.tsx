@@ -35,6 +35,26 @@ type SectionContentOverrideRow = {
   markdown_content: string | null;
 };
 
+// Shape returned by the cached /api/courses/[courseId] route (Step 32) - the master catalog only,
+// no personalization.
+type CourseApiResponse = {
+  id: string;
+  title: string;
+  description: string | null;
+  chapters: {
+    id: string;
+    title: string;
+    display_order: number;
+    sections: {
+      id: string;
+      title: string;
+      content_type: "READING" | "LAB";
+      display_order: number;
+      markdown_content: string | null;
+    }[];
+  }[];
+};
+
 // Merges the master chapters/sections catalog with this student's class-scoped sandbox: chapter
 // reorder/hide, class-private custom chapters/sections (Step 16), and per-section content
 // overrides (Step 17). Hidden chapters are dropped entirely here, unlike the instructor's editor
@@ -189,25 +209,69 @@ export default function StudentCoursePage() {
         }
 
         if (!purchaseRows || purchaseRows.length === 0) {
-          setView("not-enrolled");
-          return;
+          // No enrollment, no purchase - check for an admin-granted hardship access window
+          // (Step 32) before falling back to the paywall. A grant is scoped to a specific class,
+          // so it's treated exactly like a real enrollment once found: the reader resolves
+          // instructor overrides from that class, same as any enrolled student would see.
+          const { data: grantRows, error: grantError } = await supabase
+            .from("temporary_access_grants")
+            .select("class_id, expires_at, classes!inner(course_id)")
+            .eq("student_id", user.id)
+            .eq("classes.course_id", courseId)
+            .gt("expires_at", new Date().toISOString())
+            .limit(1);
+
+          if (cancelled) return;
+
+          if (grantError) {
+            setErrorMessage(grantError.message);
+            setView("error");
+            return;
+          }
+
+          if (grantRows && grantRows.length > 0) {
+            classId = grantRows[0].class_id;
+          } else {
+            // Still nothing - last automatic check: does the student's own institution have an
+            // available seat under its purchased license cap? No voucher code to enter; this is
+            // a silent yes/no against institutions.max_license_seats.
+            const { data: hasSeat, error: seatError } = await supabase.rpc("has_institutional_seat_available");
+
+            if (cancelled) return;
+
+            if (seatError) {
+              setErrorMessage(seatError.message);
+              setView("error");
+              return;
+            }
+
+            if (!hasSeat) {
+              setView("not-enrolled");
+              return;
+            }
+          }
         }
       }
 
       setView("loading");
 
+      // The master course structure (title/description/chapters/sections) is identical for every
+      // caller, so it's fetched from the cached /api/courses/[courseId] route (Step 32) instead of
+      // a live client-side query - everything genuinely personal to this student (enrollment/
+      // purchase access, class-scoped overrides, progress) stays on its own live path below.
+      const fetchCourse = async (): Promise<{ data: CourseApiResponse | null; error: string | null }> => {
+        const response = await fetch(`/api/courses/${courseId}`);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) return { data: null, error: body.error ?? "Course not found." };
+        return { data: body.course as CourseApiResponse, error: null };
+      };
+
       const [
-        { data, error },
+        { data: courseData, error: courseError },
         { data: chapterOverrides, error: chapterOverridesError },
         { data: contentOverrides, error: contentOverridesError },
       ] = await Promise.all([
-        supabase
-          .from("courses")
-          .select(
-            "id, title, description, chapters(id, title, display_order, sections(id, title, content_type, display_order, markdown_content))"
-          )
-          .eq("id", courseId)
-          .single(),
+        fetchCourse(),
         classId
           ? supabase
               .from("class_chapter_overrides")
@@ -226,8 +290,8 @@ export default function StudentCoursePage() {
 
       if (cancelled) return;
 
-      if (error || !data) {
-        setErrorMessage(error?.message ?? "Course not found.");
+      if (courseError || !courseData) {
+        setErrorMessage(courseError ?? "Course not found.");
         setView("error");
         return;
       }
@@ -240,7 +304,7 @@ export default function StudentCoursePage() {
 
       // Normalize embedded relations defensively, same as the admin catalog manager — cardinality-
       // based typing isn't guaranteed without generated Database types.
-      const masterChapters: ChapterNode[] = (Array.isArray(data.chapters) ? data.chapters : [])
+      const masterChapters: ChapterNode[] = (Array.isArray(courseData.chapters) ? courseData.chapters : [])
         .map(
           (chapter): ChapterNode => ({
             id: chapter.id,
@@ -270,7 +334,7 @@ export default function StudentCoursePage() {
         (contentOverrides ?? []) as SectionContentOverrideRow[]
       );
 
-      setCourse({ id: data.id, title: data.title, description: data.description, chapters });
+      setCourse({ id: courseData.id, title: courseData.title, description: courseData.description, chapters });
       setActiveSection(chapters[0]?.sections[0] ?? null);
 
       const allSections = chapters.flatMap((chapter) => chapter.sections);

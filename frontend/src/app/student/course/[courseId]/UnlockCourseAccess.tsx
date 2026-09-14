@@ -64,6 +64,14 @@ export default function UnlockCourseAccess({ courseId }: { courseId: string }) {
             Redeem it here
           </a>
         </p>
+
+        <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          Experiencing financial difficulty? Contact{" "}
+          <a href="mailto:support@balootbooks.com" className="font-medium text-brand-600 hover:text-brand-700">
+            support@balootbooks.com
+          </a>{" "}
+          to request temporary access extensions.
+        </p>
       </div>
     </div>
   );
