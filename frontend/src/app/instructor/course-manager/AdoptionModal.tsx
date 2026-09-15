@@ -1,28 +1,48 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { generateJoinCode } from "@/lib/join-code";
 import type { CatalogCourse } from "./CourseCard";
 
-const MAX_JOIN_CODE_ATTEMPTS = 5;
+type CoInstructorRow = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
+function createCoInstructorRow(): CoInstructorRow {
+  return { id: crypto.randomUUID(), firstName: "", lastName: "", email: "" };
+}
 
 export default function AdoptionModal({
   course,
-  instructorId,
   onClose,
 }: {
   course: CatalogCourse;
-  instructorId: string;
   onClose: () => void;
 }) {
   const [courseIdentifier, setCourseIdentifier] = useState("");
   const [sectionTitle, setSectionTitle] = useState("");
   const [termToken, setTermToken] = useState("");
+  const [coInstructors, setCoInstructors] = useState<CoInstructorRow[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdJoinCode, setCreatedJoinCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  function handleAddCoInstructor() {
+    setCoInstructors((current) => [...current, createCoInstructorRow()]);
+  }
+
+  function handleRemoveCoInstructor(id: string) {
+    setCoInstructors((current) => current.filter((row) => row.id !== id));
+  }
+
+  function handleCoInstructorChange(id: string, field: keyof Omit<CoInstructorRow, "id">, value: string) {
+    setCoInstructors((current) =>
+      current.map((row) => (row.id === id ? { ...row, [field]: value } : row))
+    );
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -32,40 +52,46 @@ export default function AdoptionModal({
       return;
     }
 
+    for (const row of coInstructors) {
+      if (!row.firstName.trim() || !row.lastName.trim() || !row.email.trim()) {
+        setError("Fill in every co-instructor's name and email, or remove the empty row.");
+        return;
+      }
+    }
+
     setSubmitting(true);
     setError(null);
 
-    const supabase = createClient();
-
-    for (let attempt = 0; attempt < MAX_JOIN_CODE_ATTEMPTS; attempt++) {
-      const joinCode = generateJoinCode();
-
-      const { error: insertError } = await supabase.from("classes").insert({
-        instructor_id: instructorId,
-        course_id: course.id,
-        course_identifier: courseIdentifier.trim(),
-        section_title: sectionTitle.trim(),
-        term_token: termToken.trim(),
-        join_code: joinCode,
+    try {
+      const response = await fetch("/api/classes/adopt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId: course.id,
+          courseIdentifier: courseIdentifier.trim(),
+          sectionTitle: sectionTitle.trim(),
+          termToken: termToken.trim(),
+          coInstructors: coInstructors.map((row) => ({
+            firstName: row.firstName.trim(),
+            lastName: row.lastName.trim(),
+            email: row.email.trim(),
+          })),
+        }),
       });
 
-      if (!insertError) {
-        setCreatedJoinCode(joinCode);
-        setSubmitting(false);
+      const body = await response.json();
+
+      if (!response.ok) {
+        setError(body.error ?? "Couldn't create this class.");
         return;
       }
 
-      const isJoinCodeCollision = insertError.code === "23505" && insertError.message.includes("join_code");
-      if (!isJoinCodeCollision) {
-        setError(insertError.message);
-        setSubmitting(false);
-        return;
-      }
-      // Unique constraint hit on join_code specifically — loop around and mint a fresh one.
+      setCreatedJoinCode(body.joinCode);
+    } catch {
+      setError("Couldn't reach the adoption service. Try again.");
+    } finally {
+      setSubmitting(false);
     }
-
-    setError("Couldn't generate a unique join code after several attempts. Please try again.");
-    setSubmitting(false);
   }
 
   async function handleCopy() {
@@ -115,7 +141,7 @@ export default function AdoptionModal({
             <h2 className="text-lg font-bold text-slate-900">Begin adoption</h2>
             <p className="mt-1 text-sm text-slate-500">{course.title}</p>
 
-            <div className="mt-5 space-y-4">
+            <div className="mt-5 max-h-[60vh] space-y-4 overflow-y-auto pr-1">
               {error && <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
               <div>
@@ -161,6 +187,69 @@ export default function AdoptionModal({
                   onChange={(event) => setTermToken(event.target.value)}
                   className="mt-1.5 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
                 />
+              </div>
+
+              <div className="border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="block text-sm font-medium text-slate-700">Co-instructors (optional)</span>
+                  <button
+                    type="button"
+                    onClick={handleAddCoInstructor}
+                    className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    + Add
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Co-instructors get identical read access to this class&apos;s roster and progress data.
+                </p>
+
+                {coInstructors.length > 0 && (
+                  <div className="mt-3 space-y-3">
+                    {coInstructors.map((row) => (
+                      <div key={row.id} className="rounded-md border border-slate-200 p-3">
+                        <div className="flex items-start gap-2">
+                          <div className="grid flex-1 grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              placeholder="First name"
+                              value={row.firstName}
+                              onChange={(event) =>
+                                handleCoInstructorChange(row.id, "firstName", event.target.value)
+                              }
+                              className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Last name"
+                              value={row.lastName}
+                              onChange={(event) =>
+                                handleCoInstructorChange(row.id, "lastName", event.target.value)
+                              }
+                              className="rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            />
+                            <input
+                              type="email"
+                              placeholder="Email"
+                              value={row.email}
+                              onChange={(event) =>
+                                handleCoInstructorChange(row.id, "email", event.target.value)
+                              }
+                              className="col-span-2 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCoInstructor(row.id)}
+                            className="shrink-0 rounded-md border border-slate-300 px-2 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

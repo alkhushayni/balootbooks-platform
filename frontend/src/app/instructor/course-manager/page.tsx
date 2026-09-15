@@ -183,7 +183,6 @@ export default function CourseManagerPage() {
       {activeCourse && instructorId && (
         <AdoptionModal
           course={activeCourse}
-          instructorId={instructorId}
           onClose={() => setActiveCourse(null)}
         />
       )}
