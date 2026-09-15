@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import { createClient } from "@/lib/supabase/client";
 import type { SectionPayload } from "./types";
 import Terminal from "./Terminal";
+import CodeSubmissionPanel from "./CodeSubmissionPanel";
 
 type ViewState =
   | "checking-access"
@@ -26,6 +27,7 @@ export default function LabTerminalPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [courseTitle, setCourseTitle] = useState("");
   const [section, setSection] = useState<SectionPayload | null>(null);
+  const [isMasterSection, setIsMasterSection] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +107,7 @@ export default function LabTerminalPage() {
 
       setCourseTitle(courseResult.data.title);
       setSection(resolvedSection);
+      setIsMasterSection(Boolean(masterResult.data));
       setView("ready");
     })();
 
@@ -185,6 +188,19 @@ export default function LabTerminalPage() {
               </p>
               <Terminal courseTitle={courseTitle} />
             </div>
+          </div>
+        )}
+
+        {view === "ready" && section && (
+          <div className="mt-8">
+            {isMasterSection ? (
+              <CodeSubmissionPanel sectionId={section.id} />
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
+                Structural code analysis is only available for catalog lab sections, not
+                instructor-authored custom sections.
+              </div>
+            )}
           </div>
         )}
       </main>

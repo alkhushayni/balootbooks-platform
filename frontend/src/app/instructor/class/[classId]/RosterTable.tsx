@@ -15,7 +15,13 @@ function MetricRow({ label, value, colorClass }: { label: string; value: number;
   );
 }
 
-export default function RosterTable({ roster }: { roster: RosterEntry[] }) {
+export default function RosterTable({
+  roster,
+  flaggedStudentIds,
+}: {
+  roster: RosterEntry[];
+  flaggedStudentIds: Set<string>;
+}) {
   if (roster.length === 0) {
     return <p className="px-6 py-8 text-sm text-slate-500">No students have joined this class yet.</p>;
   }
@@ -36,6 +42,11 @@ export default function RosterTable({ roster }: { roster: RosterEntry[] }) {
               <td className="px-6 py-4 align-top">
                 <p className="font-medium text-slate-900">{student.full_name}</p>
                 <p className="text-xs text-slate-500">{student.email}</p>
+                {flaggedStudentIds.has(student.student_id) && (
+                  <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-xs font-bold text-red-800">
+                    ⚠️ Suspected Duplicate
+                  </span>
+                )}
               </td>
               <td className="px-6 py-4 align-top text-slate-600">{student.institutional_id ?? "—"}</td>
               <td className="px-6 py-4 align-top">

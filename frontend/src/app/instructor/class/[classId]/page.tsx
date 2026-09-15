@@ -17,6 +17,7 @@ export default function InstructorClassPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [classMeta, setClassMeta] = useState<ClassMeta | null>(null);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const [flaggedStudentIds, setFlaggedStudentIds] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -76,6 +77,19 @@ export default function InstructorClassPage() {
       }
 
       setRoster((rosterData ?? []) as RosterEntry[]);
+
+      // lab_submissions RLS already scopes visibility to this instructor's/co-instructor's own
+      // course sections, so an unfiltered flagged-rows query is safe here - no separate ownership
+      // check needed, same pattern as the classes fetch above.
+      const { data: flaggedRows } = await supabase
+        .from("lab_submissions")
+        .select("student_id")
+        .eq("is_flagged_duplicate", true);
+
+      if (!cancelled && flaggedRows) {
+        setFlaggedStudentIds(new Set(flaggedRows.map((row) => row.student_id)));
+      }
+
       setView("ready");
     })();
 
@@ -166,7 +180,7 @@ export default function InstructorClassPage() {
                   {roster.length} student{roster.length === 1 ? "" : "s"} enrolled.
                 </p>
               </div>
-              <RosterTable roster={roster} />
+              <RosterTable roster={roster} flaggedStudentIds={flaggedStudentIds} />
             </div>
           </>
         )}
