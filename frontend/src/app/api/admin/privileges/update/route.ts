@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { logAuditEvent } from "@/lib/audit-log";
+import { sendTransactionalEmail } from "@/lib/notifications/email-service";
 
 type UpdatePayload = {
   adminId?: string;
@@ -87,6 +89,29 @@ export async function POST(request: Request) {
       canViewAuditLogs: payload.canViewAuditLogs,
     },
   });
+
+  // profiles has no email column - resolve it via the auth admin API, same as every other
+  // server-side email lookup in this app.
+  const admin = createAdminClient();
+  const { data: targetAuth } = await admin.auth.admin.getUserById(adminId);
+
+  if (targetAuth?.user?.email) {
+    const grantedCapabilities = [
+      payload.canPromptAiFactory && "AI Textbook Factory prompting",
+      payload.canVerifyFaculty && "faculty verification",
+      payload.canManageBilling && "billing management",
+      payload.canViewAuditLogs && "audit log access",
+    ].filter(Boolean);
+
+    await sendTransactionalEmail({
+      to: targetAuth.user.email,
+      subject: "Your BalootBooks admin capabilities have been updated",
+      body:
+        grantedCapabilities.length > 0
+          ? `Your admin capability matrix has been updated. You now have access to: ${grantedCapabilities.join(", ")}.`
+          : "Your admin capability matrix has been updated. All optional capabilities have been revoked.",
+    });
+  }
 
   return NextResponse.json({ success: true });
 }

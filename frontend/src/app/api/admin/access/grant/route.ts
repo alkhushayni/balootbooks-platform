@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { logAuditEvent } from "@/lib/audit-log";
+import { sendTransactionalEmail } from "@/lib/notifications/email-service";
 
 type GrantPayload = {
   studentId?: string;
@@ -75,7 +77,19 @@ export async function POST(request: Request) {
   console.log(
     `[GRANT SUCCESS] ${durationDays}-day hardship access granted to ${studentProfile.full_name} (${studentId}) for ${classRow.course_identifier} - ${classRow.section_title}. Expires ${expiresAt}.`
   );
-  console.log("[EMAIL SIMULATION] Sent access confirmation notice to student profile.");
+
+  // profiles has no email column - resolve it via the auth admin API, same as every other
+  // server-side email lookup in this app.
+  const admin = createAdminClient();
+  const { data: studentAuth } = await admin.auth.admin.getUserById(studentId);
+
+  if (studentAuth?.user?.email) {
+    await sendTransactionalEmail({
+      to: studentAuth.user.email,
+      subject: "Your temporary access grant is active",
+      body: `Hi ${studentProfile.full_name},\n\nYou've been granted ${durationDays} day(s) of temporary hardship access to ${classRow.course_identifier} - ${classRow.section_title}. This access expires on ${expiresAt}.\n\n- BalootBooks`,
+    });
+  }
 
   await logAuditEvent({
     actorId: user.id,
